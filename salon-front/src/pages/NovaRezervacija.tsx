@@ -111,8 +111,15 @@ export default function NovaRezervacija() {
       })
       if (res.sifra) setRezultat(res)
       else setGreska(res.message || 'Greška pri kreiranju rezervacije.')
-    } catch {
-      setGreska('Greška pri kreiranju rezervacije.')
+    } catch (err: any) {
+      const poruka = err?.response?.data?.message || err?.message || ''
+      if (poruka.toLowerCase().includes('promo') || poruka.toLowerCase().includes('kod')) {
+        setGreska('Promo kod je već iskorišćen ili nije validan.')
+      } else if (poruka) {
+        setGreska(poruka)
+      } else {
+        setGreska('Greška pri kreiranju rezervacije.')
+      }
     }
     setSubmitting(false)
   }

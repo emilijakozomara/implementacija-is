@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagingService } from '../messaging/messaging.service';
 
@@ -41,7 +41,7 @@ export class RezervacijaService {
         where: { kod: data.korisceniPromoKod },
       });
       if (!promo || promo.iskoriscen) {
-        throw new Error('Promo kod nije validan ili je već iskorišćen');
+        throw new BadRequestException('Promo kod nije validan ili je već iskorišćen');
       }
       promoKodPopust = 5;
       await this.prisma.promoKod.update({
@@ -61,7 +61,7 @@ export class RezervacijaService {
       const usluga = await this.prisma.usluga.findUnique({
         where: { id: u.uslugaId },
       });
-      if (!usluga) throw new Error(`Usluga ${u.uslugaId} nije pronađena`);
+      if (!usluga) throw new NotFoundException(`Usluga ${u.uslugaId} nije pronađena`);
 
       const terminVreme = new Date(u.terminVreme);
 
@@ -73,7 +73,7 @@ export class RezervacijaService {
         },
       });
       if (count >= usluga.maxKlijenataPoTerminu) {
-        throw new Error(`Termin za uslugu ${usluga.naziv} je popunjen`);
+        throw new BadRequestException(`Termin za uslugu ${usluga.naziv} je popunjen`);
       }
 
       let cena = Number(usluga.cena);
@@ -133,7 +133,7 @@ export class RezervacijaService {
         drzava: true,
       },
     });
-    if (!rezervacija) throw new Error('Rezervacija nije pronađena');
+    if (!rezervacija) throw new NotFoundException('Rezervacija nije pronađena');
     return rezervacija;
   }
 
@@ -146,12 +146,12 @@ export class RezervacijaService {
     const rezervacija = await this.prisma.rezervacija.findFirst({
       where: { email, sifra, status: 'AKTIVNA' },
     });
-    if (!rezervacija) throw new Error('Rezervacija nije pronađena');
+    if (!rezervacija) throw new NotFoundException('Rezervacija nije pronađena');
 
     const usluga = await this.prisma.usluga.findUnique({
       where: { id: uslugaId },
     });
-    if (!usluga) throw new Error('Usluga nije pronađena');
+    if (!usluga) throw new NotFoundException('Usluga nije pronađena');
 
     const terminDate = new Date(terminVreme);
 
@@ -163,7 +163,7 @@ export class RezervacijaService {
       },
     });
     if (count >= usluga.maxKlijenataPoTerminu) {
-      throw new Error('Termin je popunjen');
+      throw new BadRequestException('Termin je popunjen');
     }
 
     const settings = await this.prisma.appSettings.findFirst();
@@ -198,7 +198,7 @@ export class RezervacijaService {
     const rezervacija = await this.prisma.rezervacija.findFirst({
       where: { email, sifra, status: 'AKTIVNA' },
     });
-    if (!rezervacija) throw new Error('Rezervacija nije pronađena');
+    if (!rezervacija) throw new NotFoundException('Rezervacija nije pronađena');
 
     await this.prisma.reservationService.delete({
       where: { id: reservationServiceId },
@@ -215,7 +215,7 @@ export class RezervacijaService {
     const rezervacija = await this.prisma.rezervacija.findFirst({
       where: { email, sifra, status: 'AKTIVNA' },
     });
-    if (!rezervacija) throw new Error('Rezervacija nije pronađena');
+    if (!rezervacija) throw new NotFoundException('Rezervacija nije pronađena');
 
     await this.prisma.promoKod.updateMany({
       where: { rezervacijaId: rezervacija.id },
