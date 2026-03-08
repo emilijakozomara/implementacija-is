@@ -1,0 +1,116 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AppSettings {
+  id           Int       @id @default(autoincrement())
+  naziv        String
+  lokacija     String
+  opis         String
+  radnoVreme   String
+  popustDatum  DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  dozvoljeneValute AppSettingsValuta[]
+}
+
+model Valuta {
+  id          Int    @id @default(autoincrement())
+  naziv       String
+  kod         String @unique
+
+  appSettings  AppSettingsValuta[]
+  rezervacije  Rezervacija[]
+}
+
+model AppSettingsValuta {
+  appSettingsId Int
+  valutaId      Int
+  appSettings   AppSettings @relation(fields: [appSettingsId], references: [id])
+  valuta        Valuta      @relation(fields: [valutaId], references: [id])
+
+  @@id([appSettingsId, valutaId])
+}
+
+model Drzava {
+  id          Int           @id @default(autoincrement())
+  naziv       String
+  rezervacije Rezervacija[]
+}
+
+model KategorijaUsluge {
+  id     Int      @id @default(autoincrement())
+  naziv  String
+  usluge Usluga[]
+}
+
+model Usluga {
+  id                       Int      @id @default(autoincrement())
+  naziv                    String
+  opis                     String
+  trajanje                 Int
+  maxKlijenataPoTerminu    Int
+  vremePocetkaPrvog        DateTime
+  vremeZavrsetkaPoslednjeg DateTime
+  cena                     Decimal
+  kategorijaId             Int
+  kategorija               KategorijaUsluge @relation(fields: [kategorijaId], references: [id])
+
+  rezervacijeUsluge ReservationService[]
+}
+
+model Rezervacija {
+  id                Int         @id @default(autoincrement())
+  ime               String
+  prezime           String
+  adresa            String
+  postanskiBroj     String
+  mesto             String
+  drzavaId          Int
+  drzava            Drzava      @relation(fields: [drzavaId], references: [id])
+  email             String
+  sifra             String      @unique
+  status            RezerStatus @default(AKTIVNA)
+  valutaId          Int
+  valuta            Valuta      @relation(fields: [valutaId], references: [id])
+  korisceniPromoKod String?
+  createdAt         DateTime    @default(now())
+
+  usluge       ReservationService[]
+  promoKod     PromoKod?
+}
+
+enum RezerStatus {
+  AKTIVNA
+  OTKAZANA
+}
+
+model ReservationService {
+  id            Int         @id @default(autoincrement())
+  rezervacijaId Int
+  uslugaId      Int
+  terminVreme   DateTime
+  cena          Decimal
+  rezervacija   Rezervacija @relation(fields: [rezervacijaId], references: [id])
+  usluga        Usluga      @relation(fields: [uslugaId], references: [id])
+}
+
+model PromoKod {
+  id            Int         @id @default(autoincrement())
+  kod           String      @unique
+  rezervacijaId Int         @unique
+  iskoriscen    Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  rezervacija   Rezervacija @relation(fields: [rezervacijaId], references: [id])
+}
