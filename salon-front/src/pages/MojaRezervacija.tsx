@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../api/api'
 
 interface Usluga { id: number; naziv: string; trajanje: number }
@@ -8,6 +8,7 @@ interface Rezervacija {
   status: string; valuta: { naziv: string; kod: string }
   usluge: ReservationService[]
   promoKod?: { kod: string; iskoriscen: boolean }
+  korisceniPromoKod?: string
 }
 
 export default function MojaRezervacija() {
@@ -17,7 +18,31 @@ export default function MojaRezervacija() {
   const [greska, setGreska] = useState('')
   const [loading, setLoading] = useState(false)
   const [otkazivanje, setOtkazivanje] = useState(false)
-  const [otkazano, setOtkazano] = useState(false)
+
+  const [dostupneUsluge, setDostupneUsluge] = useState<Usluga[]>([])
+  const [odabranaUslugaId, setOdabranaUslugaId] = useState<number | ''>('')
+  const [odabraniDatum, setOdabraniDatum] = useState('')
+  const [slobodniTermini, setSlobodniTermini] = useState<string[]>([])
+  const [odabraniTermin, setOdabraniTermin] = useState('')
+  const [dodavanje, setDodavanje] = useState(false)
+  const [greskaDodavanje, setGreskaDodavanje] = useState('')
+
+  useEffect(() => {
+    api.getUsluge().then(setDostupneUsluge)
+  }, [])
+
+  useEffect(() => {
+    if (!odabranaUslugaId || !odabraniDatum) {
+      setSlobodniTermini([])
+      setOdabraniTermin('')
+      return
+    }
+    api.getSlobodniTermini(Number(odabranaUslugaId), odabraniDatum)
+      .then(termini => {
+        setSlobodniTermini(termini)
+        setOdabraniTermin('')
+      })
+  }, [odabranaUslugaId, odabraniDatum])
 
   const pronadji = async () => {
     setGreska('')
@@ -42,13 +67,39 @@ export default function MojaRezervacija() {
     }
   }
 
+  const dodajUslugu = async () => {
+    if (!odabranaUslugaId || !odabraniTermin) return
+    setGreskaDodavanje('')
+    setDodavanje(true)
+    try {
+      const res = await api.dodajUslugu({
+        email,
+        sifra,
+        uslugaId: Number(odabranaUslugaId),
+        terminVreme: odabraniTermin,
+      })
+      if (res?.statusCode && res.statusCode >= 400) {
+        setGreskaDodavanje(res.message || 'Greška pri dodavanju.')
+      } else {
+        setRezervacija(res)
+        setOdabranaUslugaId('')
+        setOdabraniDatum('')
+        setSlobodniTermini([])
+        setOdabraniTermin('')
+      }
+    } catch {
+      setGreskaDodavanje('Greška pri dodavanju usluge.')
+    }
+    setDodavanje(false)
+  }
+
   const otkazi = async () => {
     if (!window.confirm('Da li ste sigurni da želite otkazati rezervaciju?')) return
     setOtkazivanje(true)
     try {
       await api.otkaziRezervaciju(email, sifra)
-      setOtkazano(true)
-      setRezervacija(null)
+      const res = await api.getRezervacija(email, sifra)
+      setRezervacija(res)
     } catch {
       setGreska('Greška pri otkazivanju.')
     }
@@ -57,34 +108,32 @@ export default function MojaRezervacija() {
 
   const ukupno = rezervacija?.usluge.reduce((sum, u) => sum + Number(u.cena), 0) ?? 0
 
-  if (otkazano) return (
-    <div className="max-w-lg mx-auto bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center space-y-4">
-      <div className="text-5xl">✅</div>
-      <h2 className="text-2xl font-bold text-white">Rezervacija otkazana</h2>
-      <p className="text-gray-400">Vaša rezervacija je uspješno otkazana.</p>
-    </div>
-  )
-
   return (
     <div className="max-w-2xl mx-auto space-y-8">
       <h1 className="text-3xl font-bold text-white">Moja rezervacija</h1>
 
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-4">
         <h2 className="text-lg font-semibold text-purple-400">Pronađi rezervaciju</h2>
-        <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" type="email" className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 w-full" />
-        <input value={sifra} onChange={e => setSifra(e.target.value)} placeholder="Šifra" className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 w-full" />
+        <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" type="email"
+          className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 w-full" />
+        <input value={sifra} onChange={e => setSifra(e.target.value)} placeholder="Šifra"
+          className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 w-full" />
         {greska && <p className="text-red-400 text-sm">{greska}</p>}
-        <button onClick={pronadji} disabled={loading} className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold py-2 rounded-xl transition">
+        <button onClick={pronadji} disabled={loading}
+          className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold py-2 rounded-xl transition">
           {loading ? 'Učitavanje...' : 'Pronađi'}
         </button>
       </div>
 
       {rezervacija && (
         <div className="space-y-6">
+
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-3">
             <div className="flex justify-between items-start">
               <h2 className="text-lg font-semibold text-purple-400">Detalji rezervacije</h2>
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${rezervacija.status === 'AKTIVNA' ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'}`}>
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                rezervacija.status === 'AKTIVNA' ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'
+              }`}>
                 {rezervacija.status}
               </span>
             </div>
@@ -94,9 +143,19 @@ export default function MojaRezervacija() {
             <p className="text-gray-400 text-sm">Valuta: {rezervacija.valuta.naziv} ({rezervacija.valuta.kod})</p>
             {rezervacija.promoKod && (
               <p className="text-gray-400 text-sm">
-                Promo kod: <span className={rezervacija.promoKod.iskoriscen ? 'text-gray-500 line-through' : 'text-green-400 font-mono'}>{rezervacija.promoKod.kod}</span>
+                Promo kod: <span className={rezervacija.promoKod.iskoriscen ? 'text-gray-500 line-through' : 'text-green-400 font-mono'}>
+                  {rezervacija.promoKod.kod}
+                </span>
                 {rezervacija.promoKod.iskoriscen && <span className="text-gray-500 ml-2">(iskorišćen)</span>}
               </p>
+            )}
+            {rezervacija.status === 'OTKAZANA' && (
+              <div className="mt-2 p-3 bg-red-950 border border-red-800 rounded-lg">
+                <p className="text-red-400 text-sm">
+                  Ova rezervacija je otkazana i ne može se ponovo aktivirati.
+                  {rezervacija.promoKod && ' Promo kod je poništen.'}
+                </p>
+              </div>
             )}
           </div>
 
@@ -124,10 +183,60 @@ export default function MojaRezervacija() {
           </div>
 
           {rezervacija.status === 'AKTIVNA' && (
-            <button onClick={otkazi} disabled={otkazivanje} className="w-full bg-red-900 hover:bg-red-800 disabled:opacity-50 text-red-300 font-semibold py-3 rounded-xl transition">
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-purple-400">Dodaj uslugu</h2>
+
+              {rezervacija.korisceniPromoKod && (
+                <p className="text-green-400 text-sm">✓ Promo kod popust (5%) će biti primenjen na novu uslugu</p>
+              )}
+
+              <select value={odabranaUslugaId}
+                onChange={e => setOdabranaUslugaId(e.target.value === '' ? '' : Number(e.target.value))}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white w-full focus:outline-none focus:border-purple-500">
+                <option value="">— Odaberi uslugu —</option>
+                {dostupneUsluge.map(u => (
+                  <option key={u.id} value={u.id}>{u.naziv}</option>
+                ))}
+              </select>
+
+              {odabranaUslugaId && (
+                <input type="date" value={odabraniDatum} onChange={e => setOdabraniDatum(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white w-full focus:outline-none focus:border-purple-500" />
+              )}
+
+              {slobodniTermini.length > 0 && (
+                <select value={odabraniTermin} onChange={e => setOdabraniTermin(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white w-full focus:outline-none focus:border-purple-500">
+                  <option value="">— Odaberi termin —</option>
+                  {slobodniTermini.map(t => (
+                    <option key={t} value={t}>
+                      {new Date(t).toLocaleTimeString('sr', { hour: '2-digit', minute: '2-digit' })}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {odabranaUslugaId && odabraniDatum && slobodniTermini.length === 0 && (
+                <p className="text-yellow-500 text-sm">Nema slobodnih termina za odabrani datum.</p>
+              )}
+
+              {greskaDodavanje && <p className="text-red-400 text-sm">{greskaDodavanje}</p>}
+
+              <button onClick={dodajUslugu} disabled={!odabranaUslugaId || !odabraniTermin || dodavanje}
+                className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white font-semibold py-2 rounded-xl transition">
+                {dodavanje ? 'Dodavanje...' : 'Dodaj uslugu'}
+              </button>
+            </div>
+          )}
+
+          {rezervacija.status === 'AKTIVNA' && (
+            <button onClick={otkazi} disabled={otkazivanje}
+              className="w-full bg-red-900 hover:bg-red-800 disabled:opacity-50 text-red-300 font-semibold py-3 rounded-xl transition">
               {otkazivanje ? 'Otkazivanje...' : 'Otkaži rezervaciju'}
             </button>
           )}
+
         </div>
       )}
     </div>

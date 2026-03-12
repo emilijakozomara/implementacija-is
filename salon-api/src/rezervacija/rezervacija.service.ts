@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagingService } from '../messaging/messaging.service';
+import { ValutaService } from '../valuta/valuta.service';
 
 function generateSifra(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -21,6 +22,7 @@ export class RezervacijaService {
   constructor(
     private prisma: PrismaService,
     private messaging: MessagingService,
+    private valutaService: ValutaService,
   ) {}
 
   async create(data: {
@@ -56,6 +58,10 @@ export class RezervacijaService {
       ? now <= settings.popustDatum
       : false;
 
+    const valuta = await this.prisma.valuta.findUnique({
+      where: { id: data.valutaId },
+    });
+
     const uslugeZaKreiranje: UslugaZaKreiranje[] = [];
     for (const u of data.usluge) {
       const usluga = await this.prisma.usluga.findUnique({
@@ -79,6 +85,10 @@ export class RezervacijaService {
       let cena = Number(usluga.cena);
       if (ima10Popust) cena = cena * 0.9;
       if (promoKodPopust > 0) cena = cena * (1 - promoKodPopust / 100);
+
+      if (valuta && valuta.kod !== 'RSD') {
+        cena = await this.valutaService.konvertujCenu(cena, 'RSD', valuta.kod);
+      }
 
       uslugeZaKreiranje.push({ uslugaId: u.uslugaId, terminVreme, cena });
     }
@@ -145,11 +155,13 @@ export class RezervacijaService {
   ) {
     const rezervacija = await this.prisma.rezervacija.findFirst({
       where: { email, sifra, status: 'AKTIVNA' },
+      include: { valuta: true },
     });
     if (!rezervacija) throw new NotFoundException('Rezervacija nije pronađena');
 
     const usluga = await this.prisma.usluga.findUnique({
       where: { id: uslugaId },
+      include: { kategorija: true },
     });
     if (!usluga) throw new NotFoundException('Usluga nije pronađena');
 
@@ -171,8 +183,14 @@ export class RezervacijaService {
     const ima10Popust = settings?.popustDatum
       ? now <= settings.popustDatum
       : false;
+
     let cena = Number(usluga.cena);
     if (ima10Popust) cena = cena * 0.9;
+    if (rezervacija.korisceniPromoKod) cena = cena * 0.95;
+
+    if (rezervacija.valuta && rezervacija.valuta.kod !== 'RSD') {
+      cena = await this.valutaService.konvertujCenu(cena, 'RSD', rezervacija.valuta.kod);
+    }
 
     await this.prisma.reservationService.create({
       data: {
@@ -185,6 +203,11 @@ export class RezervacijaService {
 
     this.messaging.publishRezervacijaEvent('IZMENJENA', {
       rezervacijaId: rezervacija.id,
+      dodataUsluga: {
+        kategorijaId: usluga.kategorijaId,
+        naziv: usluga.kategorija?.naziv ?? '',
+        terminVreme: terminDate.toISOString(),
+      },
     });
 
     return this.get(email, sifra);
@@ -200,12 +223,26 @@ export class RezervacijaService {
     });
     if (!rezervacija) throw new NotFoundException('Rezervacija nije pronađena');
 
+    const reservationService = await this.prisma.reservationService.findUnique({
+      where: { id: reservationServiceId },
+      include: { usluga: { include: { kategorija: true } } },
+    });
+
+    if (!reservationService || reservationService.rezervacijaId !== rezervacija.id) {
+      throw new NotFoundException('Usluga nije pronađena u ovoj rezervaciji');
+    }
+
     await this.prisma.reservationService.delete({
       where: { id: reservationServiceId },
     });
 
     this.messaging.publishRezervacijaEvent('IZMENJENA', {
       rezervacijaId: rezervacija.id,
+      uklonjena: true,
+      usluga: {
+        kategorijaId: reservationService.usluga.kategorijaId,
+        naziv: reservationService.usluga.kategorija?.naziv ?? '',
+      },
     });
 
     return this.get(email, sifra);
@@ -214,6 +251,9 @@ export class RezervacijaService {
   async otkazi(email: string, sifra: string) {
     const rezervacija = await this.prisma.rezervacija.findFirst({
       where: { email, sifra, status: 'AKTIVNA' },
+      include: {
+        usluge: { include: { usluga: { include: { kategorija: true } } } },
+      },
     });
     if (!rezervacija) throw new NotFoundException('Rezervacija nije pronađena');
 
@@ -230,6 +270,10 @@ export class RezervacijaService {
     this.messaging.publishRezervacijaEvent('OTKAZANA', {
       rezervacijaId: rezervacija.id,
       email,
+      usluge: rezervacija.usluge.map((u) => ({
+        kategorijaId: u.usluga.kategorijaId,
+        naziv: u.usluga.kategorija?.naziv ?? '',
+      })),
     });
 
     return { message: 'Rezervacija je otkazana' };
